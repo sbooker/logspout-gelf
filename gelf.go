@@ -36,6 +36,7 @@ func NewGelfAdapter(route *router.Route) (router.LogAdapter, error) {
 	if err != nil {
 		return nil, err
 	}
+	gelfWriter.CompressionType = gelf.CompressNone
 
 	return &GelfAdapter{
 		route:  route,
@@ -65,10 +66,6 @@ func (a *GelfAdapter) Stream(logstream chan *router.Message) {
 			Level:    level,
 			RawExtra: extra,
 		}
-		// 	ContainerId:    m.Container.ID,
-		// 	ContainerImage: m.Container.Config.Image,
-		// 	ContainerName:  m.Container.Name,
-		// }
 
 		// here be message write.
 		if err := a.writer.WriteMessage(&msg); err != nil {
