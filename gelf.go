@@ -52,25 +52,6 @@ func (a *GelfAdapter) Stream(logstream chan *router.Message) {
 
 		m := &GelfMessage{message}
 
-		level := gelf.LOG_INFO
-		facility := ""
-
-		timeExp := `\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{6})?(\+|\-)(\d{4}|\d{2}:\d{2})`
-		facilityExp := `[\w-_]+`
-		levelExp := `[\w]+`
-		messageExp := `.*`
-		expr := regexp.MustCompile(fmt.Sprintf(`^\[(%s)\]\s(%s)\.(%s):\s(%s)$`, timeExp, facilityExp, levelExp, messageExp))
-		matches := expr.FindAllString(m.Message.Data, -1)
-
-		if len(matches) > 1 {
-			facility = matches[1]
-		}
-
-		log.Println(facility)
-
-		if m.Source == "stderr" {
-			level = gelf.LOG_ERR
-		}
 		extra, err := m.getExtraFields()
 		if err != nil {
 			log.Println("Graylog:", err)
@@ -81,9 +62,9 @@ func (a *GelfAdapter) Stream(logstream chan *router.Message) {
 			Version:  "1.1",
 			Host:     hostname,
 			Short:    m.Message.Data,
-			TimeUnix: float64(m.Message.Time.UnixNano()/int64(time.Millisecond)) / 1000.0,
-			Level:    level,
-			Facility: facility,
+			TimeUnix: m.getTimestamp(),
+			Level:    m.getLevel(),
+			Facility: m.getFacility(),
 			RawExtra: extra,
 		}
 
@@ -97,6 +78,60 @@ func (a *GelfAdapter) Stream(logstream chan *router.Message) {
 
 type GelfMessage struct {
 	*router.Message
+}
+
+func (m GelfMessage) getTimestamp() float64 {
+	return float64(m.Message.Time.UnixNano() / int64(time.Millisecond))
+}
+
+func (m GelfMessage) getFacility() string {
+	return m.getParsedAppMessagePart(5)
+}
+
+func (m GelfMessage) getLevel() int32 {
+	appLevel := m.getParsedAppMessagePart(6)
+
+	levelMap := map[string]int32{
+		"DEBUG":     gelf.LOG_DEBUG,
+		"INFO":      gelf.LOG_INFO,
+		"NOTICE":    gelf.LOG_NOTICE,
+		"WARNING":   gelf.LOG_WARNING,
+		"ERROR":     gelf.LOG_ERR,
+		"CRITICAL":  gelf.LOG_CRIT,
+		"ALERT":     gelf.LOG_ALERT,
+		"EMERGENCY": gelf.LOG_EMERG,
+	}
+
+	if level, found := levelMap[appLevel]; found {
+		return level
+	}
+
+	level := gelf.LOG_INFO
+	if m.Source == "stderr" {
+		level = gelf.LOG_ERR
+	}
+
+	return level
+}
+
+func (m GelfMessage) getParsedAppMessagePart(part int8) string {
+	const timeExp = `\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{6})?(\+|\-)(\d{4}|\d{2}:\d{2})`
+	const facilityExp = `[\w-_]+`
+	const levelExp = `[\w]+`
+	const messageExp = `.*`
+
+	if part != 1 && part != 5 && part != 6 && part != 7 {
+		return ""
+	}
+
+	expr := regexp.MustCompile(fmt.Sprintf(`^\[(%s)\]\s(%s)\.(%s):\s(%s)$`, timeExp, facilityExp, levelExp, messageExp))
+	matches := expr.FindStringSubmatch(m.Message.Data)
+
+	if len(matches) != 8 {
+		return ""
+	}
+
+	return matches[part]
 }
 
 func (m GelfMessage) getExtraFields() (json.RawMessage, error) {
