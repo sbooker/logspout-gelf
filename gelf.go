@@ -3,8 +3,10 @@ package gelf
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -47,8 +49,25 @@ func NewGelfAdapter(route *router.Route) (router.LogAdapter, error) {
 // Stream implements the router.LogAdapter interface.
 func (a *GelfAdapter) Stream(logstream chan *router.Message) {
 	for message := range logstream {
+
 		m := &GelfMessage{message}
+
 		level := gelf.LOG_INFO
+		facility := ""
+
+		timeExp := `\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{6})?(\+|\-)(\d{4}|\d{2}:\d{2})`
+		facilityExp := `[\w-_]+`
+		levelExp := `[\w]+`
+		messageExp := `.*`
+		expr := regexp.MustCompile(fmt.Sprintf(`^\[(%s)\]\s(%s)\.(%s):\s(%s)$`, timeExp, facilityExp, levelExp, messageExp))
+		matches := expr.FindAllString(m.Message.Data, -1)
+
+		if len(matches) > 1 {
+			facility = matches[1]
+		}
+
+		log.Println(facility)
+
 		if m.Source == "stderr" {
 			level = gelf.LOG_ERR
 		}
@@ -64,6 +83,7 @@ func (a *GelfAdapter) Stream(logstream chan *router.Message) {
 			Short:    m.Message.Data,
 			TimeUnix: float64(m.Message.Time.UnixNano()/int64(time.Millisecond)) / 1000.0,
 			Level:    level,
+			Facility: facility,
 			RawExtra: extra,
 		}
 
