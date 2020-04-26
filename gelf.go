@@ -136,6 +136,26 @@ func (m GelfMessage) getParsedAppMessagePart(part int8) string {
 
 func (m GelfMessage) getExtraFields() (json.RawMessage, error) {
 
+	extra := m.getContainerExtra()
+
+	for key, value := range getEnvExtra() {
+		extra["_"+key] = value
+	}
+
+	for name, label := range m.Container.Config.Labels {
+		if len(name) > 5 && strings.ToLower(name[0:5]) == "gelf_" {
+			extra[name[4:]] = label
+		}
+	}
+
+	rawExtra, err := json.Marshal(extra)
+	if err != nil {
+		return nil, err
+	}
+	return rawExtra, nil
+}
+
+func (m GelfMessage) getContainerExtra() map[string]interface{} {
 	extra := map[string]interface{}{
 		"_container_id":   m.Container.ID,
 		"_container_name": m.Container.Name[1:], // might be better to use strings.TrimLeft() to remove the first /
@@ -144,19 +164,26 @@ func (m GelfMessage) getExtraFields() (json.RawMessage, error) {
 		"_command":        strings.Join(m.Container.Config.Cmd[:], " "),
 		"_created":        m.Container.Created,
 	}
-	for name, label := range m.Container.Config.Labels {
-		if len(name) > 5 && strings.ToLower(name[0:5]) == "gelf_" {
-			extra[name[4:]] = label
-		}
-	}
 	swarmnode := m.Container.Node
 	if swarmnode != nil {
 		extra["_swarm_node"] = swarmnode.Name
 	}
 
-	rawExtra, err := json.Marshal(extra)
-	if err != nil {
-		return nil, err
+	return extra
+}
+
+func getEnvExtra() map[string]interface{} {
+	var dat map[string]interface{}
+
+	if value, isSet := os.LookupEnv("EXTRA_JSON"); isSet {
+
+		err := json.Unmarshal([]byte(value), &dat)
+		if err != nil {
+			return make(map[string]interface{}, 0)
+		}
+
+		return dat
 	}
-	return rawExtra, nil
+
+	return make(map[string]interface{}, 0)
 }
