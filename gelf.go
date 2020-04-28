@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,12 +39,38 @@ func NewGelfAdapter(route *router.Route) (router.LogAdapter, error) {
 	if err != nil {
 		return nil, err
 	}
-	gelfWriter.CompressionType = gelf.CompressNone
+
+	gelfWriter.CompressionType = getCompressType()
+	gelfWriter.CompressionLevel = getCompressLevel()
 
 	return &GelfAdapter{
 		route:  route,
 		writer: gelfWriter,
 	}, nil
+}
+
+func getCompressLevel() int {
+	if value, isSet := os.LookupEnv("COMPRESS_LEVEL"); isSet {
+		level, err := strconv.Atoi(value)
+		if err != nil && level >= -1 && level <= 9 {
+			return level
+		}
+	}
+
+	return -1
+}
+
+func getCompressType() gelf.CompressType {
+	switch strings.ToLower(os.Getenv("COMPRESS_TYPE")) {
+	case "none":
+		return gelf.CompressNone
+	case "zlib":
+		return gelf.CompressZlib
+	case "gzip":
+		return gelf.CompressGzip
+	}
+
+	return gelf.CompressGzip
 }
 
 // Stream implements the router.LogAdapter interface.
@@ -61,14 +88,14 @@ func (a *GelfAdapter) Stream(logstream chan *router.Message) {
 		msg := gelf.Message{
 			Version:  "1.1",
 			Host:     hostname,
-			Short:    m.Message.Data,
+			Short:    m.getShortMessage(),
+			Full:     m.Message.Data,
 			TimeUnix: m.getTimestamp(),
 			Level:    m.getLevel(),
 			Facility: m.getFacility(),
 			RawExtra: extra,
 		}
 
-		// here be message write.
 		if err := a.writer.WriteMessage(&msg); err != nil {
 			log.Println("Graylog:", err)
 			continue
@@ -86,6 +113,24 @@ func (m GelfMessage) getTimestamp() float64 {
 
 func (m GelfMessage) getFacility() string {
 	return m.getParsedAppMessagePart(5)
+}
+
+func (m GelfMessage) getContext() map[string]interface{} {
+	return m.getJsonPart(8)
+}
+
+func (m GelfMessage) getExtra() map[string]interface{} {
+	return m.getJsonPart(9)
+}
+
+func (m GelfMessage) getJsonPart(part int8) map[string]interface{} {
+	var dat map[string]interface{}
+	err := json.Unmarshal([]byte(m.getParsedAppMessagePart(part)), &dat)
+	if err != nil {
+		return make(map[string]interface{}, 0)
+	}
+
+	return dat
 }
 
 func (m GelfMessage) getLevel() int32 {
@@ -114,20 +159,32 @@ func (m GelfMessage) getLevel() int32 {
 	return level
 }
 
+func (m GelfMessage) getShortMessage() string {
+	return m.getParsedAppMessagePart(7)
+}
+
 func (m GelfMessage) getParsedAppMessagePart(part int8) string {
 	const timeExp = `\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{6})?(\+|\-)(\d{4}|\d{2}:\d{2})`
 	const facilityExp = `[\w-_]+`
 	const levelExp = `[\w]+`
 	const messageExp = `.*`
+	const jsonExpr = `\{\S+\}|\[\]`
 
-	if part != 1 && part != 5 && part != 6 && part != 7 {
+	const TIME = 1
+	const FACILITY = 5
+	const LEVEL = 6
+	const MESSAGE = 7
+	const CONTEXT = 8
+	const EXTRA = 9
+
+	if part != TIME && part != FACILITY && part != LEVEL && part != MESSAGE && part != CONTEXT && part != EXTRA {
 		return ""
 	}
 
-	expr := regexp.MustCompile(fmt.Sprintf(`^\[(%s)\]\s(%s)\.(%s):\s(%s)$`, timeExp, facilityExp, levelExp, messageExp))
+	expr := regexp.MustCompile(fmt.Sprintf(`^\[(%s)\]\s(%s)\.(%s):\s(%s)\s(%s)\s(%s)$`, timeExp, facilityExp, levelExp, messageExp, jsonExpr, jsonExpr))
 	matches := expr.FindStringSubmatch(m.Message.Data)
 
-	if len(matches) != 8 {
+	if len(matches) != 10 {
 		return ""
 	}
 
@@ -137,6 +194,14 @@ func (m GelfMessage) getParsedAppMessagePart(part int8) string {
 func (m GelfMessage) getExtraFields() (json.RawMessage, error) {
 
 	extra := m.getContainerExtra()
+
+	for key, value := range m.getContext() {
+		extra["_"+key] = value
+	}
+
+	for key, value := range m.getExtra() {
+		extra["_"+key] = value
+	}
 
 	for key, value := range getEnvExtra() {
 		extra["_"+key] = value
