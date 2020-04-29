@@ -89,7 +89,6 @@ func (a *GelfAdapter) Stream(logstream chan *router.Message) {
 			Version:  "1.1",
 			Host:     hostname,
 			Short:    m.getShortMessage(),
-			Full:     m.Message.Data,
 			TimeUnix: m.getTimestamp(),
 			Level:    m.getLevel(),
 			Facility: m.getFacility(),
@@ -160,7 +159,12 @@ func (m GelfMessage) getLevel() int32 {
 }
 
 func (m GelfMessage) getShortMessage() string {
-	return m.getParsedAppMessagePart(7)
+	message := m.getParsedAppMessagePart(7)
+	if message == "" {
+		message = m.Message.Data
+	}
+
+	return message
 }
 
 func (m GelfMessage) getParsedAppMessagePart(part int8) string {
