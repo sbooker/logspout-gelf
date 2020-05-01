@@ -1,11 +1,10 @@
 # Graylog GELF Module for Logspout
 This module allows [Logspout](https://github.com/gliderlabs/logspout) to send Docker logs in the GELF format to Graylog via UDP.
-Also can parse default [Monolog](https://github.com/Seldaek/monolog) message format. Not formatted message fully ps
-assed to GELF short_message
+Also it can parse default [Monolog](https://github.com/Seldaek/monolog) message format. Not formatted message fully passed to GELF short_message.
 
 ## Build & Run
 
-See [official Logspout custom build documentation](https://github.com/gliderlabs/logspout/tree/master/custom)
+See [official Logspout custom build documentation](https://github.com/gliderlabs/logspout/tree/master/custom).
 
 ## A note about GELF parameters
 The following docker container attributes are mapped to the corresponding GELF extra attributes.
