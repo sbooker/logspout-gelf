@@ -81,6 +81,7 @@ COMPRESS_LEVEL: -1..9; -1 - default compress level
 
 EXTRA_JSON: json formatted extra additional GELF params; First underscore will be added by module
 
+SEND_TIMESTAMP: 1|0 send or no timestamp field
 
 ## License
 MIT. See [License](LICENSE)

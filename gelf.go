@@ -89,10 +89,13 @@ func (a *GelfAdapter) Stream(logstream chan *router.Message) {
 			Version:  "1.1",
 			Host:     hostname,
 			Short:    m.getShortMessage(),
-			TimeUnix: m.getTimestamp(),
 			Level:    m.getLevel(),
 			Facility: m.getFacility(),
 			RawExtra: extra,
+		}
+
+		if value, isSet := os.LookupEnv("SEND_TIMESTAMP"); isSet && value == "1" {
+			msg.TimeUnix = m.getTimestamp()
 		}
 
 		if err := a.writer.WriteMessage(&msg); err != nil {
